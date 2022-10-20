@@ -1,5 +1,9 @@
 # transcribe
 
+## 概要
+
+PCの音声と自分の声をミックスして、文字起こし・翻訳を行う
+
 ## Setting
 
 - アプリの出力をBlackHole 2chとし、外部マイクとBlackHole 2chをLadio Castの入力とする
