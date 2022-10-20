@@ -1,0 +1,4 @@
+numpy
+PyAudio
+questionary
+torch
