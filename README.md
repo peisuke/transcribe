@@ -2,7 +2,14 @@
 
 ## 概要
 
-PCの音声と自分の声をミックスして、文字起こし・翻訳を行う
+- PCの音声と自分の声をミックスして、文字起こし・翻訳を行う
+- BlackHoleとLadio Castをインストールしておく
+  - https://github.com/ExistentialAudio/BlackHole
+  - https://apps.apple.com/jp/app/ladiocast/id411213048?mt=12
+- BlackHoleとは
+  -　MacOS向けの仮想オーディオループバックドライバー、アプリケーションがオーディオを他のアプリケーションに遅延なしで渡すことができる。
+- Ladio Castとは
+  - Mac内の音声に対するミキサー
 
 ## Setting
 
