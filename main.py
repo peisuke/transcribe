@@ -7,9 +7,14 @@ import questionary
 import whisper
 from questionary import Choice
 
+lang = questionary.select(
+    "Which langage you want to see?",
+    choices=["ja", "en"],
+).ask()
+
 print("Loading model...")
 model = whisper.load_model("base")
-options = whisper.DecodingOptions(fp16=False, language="ja")
+options = whisper.DecodingOptions(fp16=False, language=lang)
 print("Done")
 
 
