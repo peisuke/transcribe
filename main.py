@@ -149,7 +149,7 @@ if __name__ == "__main__":
     margin_length = 1
 
     worker_th = WorkerThread(block_length, margin_length)
-    worker_th.setDaemon(True)
+    worker_th.daemon = True
     worker_th.start()
 
     af = AudioFilter(worker_th, block_length, margin_length)
