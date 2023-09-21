@@ -1,77 +1,132 @@
+import io
+import os
 import threading
 import time
-
+import datetime
 import numpy as np
+from scipy.io import wavfile
 import pyaudio
 import questionary
+import openai
 import whisper
-from questionary import Choice
-
-lang = questionary.select(
-    "Which langage you want to see?",
-    choices=["ja", "en"],
-).ask()
-
-print("Loading model...")
-model = whisper.load_model("base")
-options = whisper.DecodingOptions(fp16=False, language=lang)
-print("Done")
 
 
-def convert(audio):
+def create_filename(dirname):
+    now = datetime.datetime.utcnow()
+    now = now.strftime("%Y%m%d_%H%M%S")
+    return os.path.join(dirname, f"{now}.txt")
+
+
+def get_language_choice():
+    return questionary.select(
+        "Which language do you want to see?",
+        choices=["ja", "en"],
+    ).ask()
+
+
+def get_api_usage_choice():
+    return questionary.select(
+        "Use OpenAI API?",
+        choices=[
+            questionary.Choice('No', value=False),
+            questionary.Choice('Yes', value=True),
+        ]
+    ).ask()
+
+
+def set_openai_api_key():
+    api_key = questionary.path("Input API Key").ask()
+    openai.api_key = api_key
+
+
+def load_whisper_model(lang):
+    print("Loading model...")
+    model = whisper.load_model("base")
+    options = whisper.DecodingOptions(fp16=False, language=lang)
+    print("Done")
+    return model, options
+
+
+def convert_local(audio, model, options):
     audio = audio.flatten().astype(np.float32) / 32768.0
     audio = whisper.pad_or_trim(audio)
-
-    # make log-Mel spectrogram and move to the same device as the model
     mel = whisper.log_mel_spectrogram(audio).to(model.device)
-
-    # detect the spoken language
     _, probs = model.detect_language(mel)
-
-    # decode the audio
     result = whisper.decode(model, mel, options)
-
-    # print the recognized text
     print(f"{max(probs, key=probs.get)}: {result.text}")
 
 
+def convert_api(audio, filename=None):
+    buffer = io.BytesIO()
+    audio = audio.flatten()
+    wavfile.write(buffer, 16000, audio.astype(np.int16))
+    buffer.seek(0)
+    buffer.name = "temp.wav"
+    transcript = openai.Audio.transcribe("whisper-1", buffer)
+    text = transcript["text"]
+    text = "\n".join(text.split(" "))
+    print(f"\033[92m{text}\033[0m")
+
+    if filename:
+        dirname = os.path.dirname(filename)
+        os.makedirs(dirname, exist_ok=True)
+        with open(filename, "a") as f:
+            f.write(text + "\n")
+
+
 class WorkerThread(threading.Thread):
-    def __init__(self, block_length, margin_length):
+    def __init__(self, block_length, margin_length, model, options, filename=None):
         super(WorkerThread, self).__init__()
         self.is_stop = False
         self.lock = threading.Lock()
         self.buffer = []
         self.result = []
-
         self.prev_samples = []
+        self.model = model
+        self.options = options
+        self.filename = filename
 
     def stop(self):
         self.is_stop = True
         self.join()
 
+    def process_buffer(self, data, all_data):
+        with self.lock:
+            buf = self.buffer.pop(0)
+        
+        if buf is None:
+            data = self.handle_none_buffer(data)
+        else:
+            data, all_data = self.handle_data_buffer(data, all_data, buf)
+        
+        return data, all_data
+
+    def handle_none_buffer(self, data):
+        if len(data) > 8:
+            convert_local(np.concatenate(data), self.model, self.options)
+            data = []
+        return data
+
+    def handle_data_buffer(self, data, all_data, buf):
+        if len(data) > 100:
+            convert_local(np.concatenate(data), self.model, self.options)
+            data = []
+        elif len(all_data) > 1000:
+            convert_api(np.concatenate(all_data), self.filename)
+            all_data = []
+
+        data.append(buf)
+        all_data.append(buf)
+        
+        return data, all_data
+
     def run(self):
         data = []
+        all_data = []
+
         while not self.is_stop:
-            if len(self.buffer) > 0:
-                with self.lock:
-                    buf = self.buffer[0]
-                    self.buffer = self.buffer[1:]
-
-                if buf is None:
-                    if len(data) > 8:
-                        # 短すぎる文章はカット
-                        chunk = np.concatenate(data)
-                        convert(chunk)
-                        data = []
-                    continue
-                elif len(data) > 100:
-                    # ある程度長い文章は途中で送信
-                    chunk = np.concatenate(data)
-                    convert(chunk)
-                    data = []
-                    continue
-
-                data.append(buf)
+            if self.buffer:
+                data, all_data = self.process_buffer(data, all_data)
             else:
                 time.sleep(0.01)
 
@@ -83,7 +138,7 @@ class WorkerThread(threading.Thread):
 class AudioFilter:
     def __init__(self, worker, block_length, margin_length):
         self.p = pyaudio.PyAudio()
-        input_index = self.get_channels(self.p)
+        input_index = self.get_input_device_index()
 
         self.channels = 1
         self.rate = 16000
@@ -99,35 +154,23 @@ class AudioFilter:
             stream_callback=self.callback,
         )
 
-        # Status:0が待ち
         self.age = 0
-        self.index = 0
-        self.chunk = []
-        self.buffer = []
         self.worker = worker
-
         self.block_length = block_length
         self.margin_length = margin_length
 
-    def get_channels(self, p):
-        # input_index = self.p.get_default_input_device_info()['index']
-
-        selects = []
-        for idx in range(self.p.get_device_count()):
-            info = self.p.get_device_info_by_index(idx)
-            selects.append(Choice(title=info["name"], value=info["index"]))
-
-        input_index = questionary.select(
-            "Which device you want to use?",
+    def get_input_device_index(self):
+        selects = [
+            questionary.Choice(title=self.p.get_device_info_by_index(idx)["name"], value=idx)
+            for idx in range(self.p.get_device_count())
+        ]
+        return questionary.select(
+            "Which device do you want to use?",
             choices=selects,
         ).ask()
 
-        return input_index
-
     def callback(self, in_data, frame_count, time_info, status):
         decoded_data = np.frombuffer(in_data, np.int16).copy()
-
-        # 音声がONの場合、入力モードにする
         if decoded_data.max() > 400:
             self.age = self.block_length
         else:
@@ -145,15 +188,24 @@ class AudioFilter:
 
 
 if __name__ == "__main__":
+    lang = get_language_choice()
+    use_api = get_api_usage_choice()
+
+    if use_api:
+        set_openai_api_key()
+
+    model, options = load_whisper_model(lang)
+
     block_length = 4
     margin_length = 1
+    
+    filename = create_filename("data")
 
-    worker_th = WorkerThread(block_length, margin_length)
+    worker_th = WorkerThread(block_length, margin_length, model, options, filename)
     worker_th.daemon = True
     worker_th.start()
 
     af = AudioFilter(worker_th, block_length, margin_length)
-
     af.stream.start_stream()
 
     try:
