@@ -1,23 +1,21 @@
 import argparse
+
 import openai
 import tqdm
-
 from langchain import PromptTemplate
-from langchain.chat_models import ChatOpenAI
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.docstore.document import Document
-from langchain.chains.summarize import load_summarize_chain
-
-from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.chains import RetrievalQA
+from langchain.chains.summarize import load_summarize_chain
+from langchain.chat_models import ChatOpenAI
+from langchain.docstore.document import Document
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
 
 
 def correct_text(input_text):
     text_splitter = RecursiveCharacterTextSplitter(
-        separators=["\n\n","\n"," "],
-        chunk_size=500,
-        chunk_overlap=30)
+        separators=["\n\n", "\n", " "], chunk_size=500, chunk_overlap=30
+    )
     splitted_original_texts = text_splitter.split_text(input_text)
 
     formatted_splitted_original_texts = []
@@ -25,21 +23,19 @@ def correct_text(input_text):
     for text in tqdm.tqdm(splitted_original_texts):
         human_template = f"""以下は文の途中で改行が入ってしまっている音声書き起こしの文章です。
 読みやすく整理するために、途中で途切れた前後の文を繋げた上で、句読点や改行を追加してください。誤字脱字があれば修正してください。
----    
+---
 {text}
 ---
 """
-        
+
         response = openai.Completion.create(
-            model="gpt-3.5-turbo-instruct",
-            prompt=human_template,
-            max_tokens=1000
+            model="gpt-3.5-turbo-instruct", prompt=human_template, max_tokens=1000
         )
 
         formatted_splitted_original_texts.append(response.choices[0].text)
 
     formatted_text = "\n".join([s.strip() for s in formatted_splitted_original_texts])
-    
+
     return formatted_text
 
 
@@ -74,7 +70,7 @@ def create_section(input_text):
 
     list_prompt = PromptTemplate(template=list_template, input_variables=["text"])
     merge_prompt = PromptTemplate(template=merge_template, input_variables=["text"])
-    
+
     chat = ChatOpenAI(model="gpt-3.5-turbo-16k-0613")
     chain = load_summarize_chain(
         llm=chat,
@@ -83,56 +79,50 @@ def create_section(input_text):
         combine_prompt=merge_prompt,
         verbose=False,
     )
-    
+
     text_splitter = RecursiveCharacterTextSplitter(
-        separators=["\n\n","\n"," "],
-        chunk_size=10000,
-        chunk_overlap=0)
+        separators=["\n\n", "\n", " "], chunk_size=10000, chunk_overlap=0
+    )
     splitted_formatted_texts = text_splitter.split_text(input_text)
-    
+
     docs = [Document(page_content=t) for t in splitted_formatted_texts]
     ret = chain(inputs=docs, return_only_outputs=True)
-    
+
     sections = ret["output_text"]
     sections = [s[2:] for s in sections.split("\n") if s.startswith("- ")]
-    
+
     return sections
 
 
 def retrive_content(input_text, sections):
     text_splitter = RecursiveCharacterTextSplitter(
-        separators=["\n\n","\n"," "],
-        chunk_size=1000,
-        chunk_overlap=30)
+        separators=["\n\n", "\n", " "], chunk_size=1000, chunk_overlap=30
+    )
     rag_texts = text_splitter.split_text(input_text)
-    
+
     embeddings = OpenAIEmbeddings()
-    
+
     docs = [Document(page_content=t) for t in rag_texts]
-    
+
     db = FAISS.from_documents(docs, embeddings)
     qa = RetrievalQA.from_chain_type(
         llm=ChatOpenAI(model="gpt-3.5-turbo-16k-0613"),
-        chain_type="stuff", 
-        retriever=db.as_retriever(search_kwargs={"k": 3})
+        chain_type="stuff",
+        retriever=db.as_retriever(search_kwargs={"k": 3}),
     )
-    
+
     result = []
     for section in tqdm.tqdm(sections):
         query = f"「{section}」について詳しく教えてください"
         resp = qa.run(query)
-        result.append({
-            "title": section,
-            "content": resp
-        })
+        result.append({"title": section, "content": resp})
     return result
 
 
 def predict_title(text):
     text_splitter = RecursiveCharacterTextSplitter(
-        separators=["\n\n","\n"," "],
-        chunk_size=10000,
-        chunk_overlap=0)
+        separators=["\n\n", "\n", " "], chunk_size=10000, chunk_overlap=0
+    )
 
     splitted_formatted_texts = text_splitter.split_text(text)
 
@@ -150,7 +140,7 @@ def predict_title(text):
 
     map_prompt = PromptTemplate(template=map_template, input_variables=["text"])
     merge_prompt = PromptTemplate(template=merge_template, input_variables=["text"])
-    
+
     chat = ChatOpenAI(model="gpt-3.5-turbo-16k-0613")
     chain = load_summarize_chain(
         llm=chat,
@@ -159,18 +149,17 @@ def predict_title(text):
         combine_prompt=merge_prompt,
         verbose=False,
     )
-    
+
     docs = [Document(page_content=t) for t in splitted_formatted_texts]
     ret = chain(inputs=docs, return_only_outputs=True)["output_text"]
-    
+
     return ret
 
 
 def predict_summary(text):
     text_splitter = RecursiveCharacterTextSplitter(
-        separators=["\n\n","\n"," "],
-        chunk_size=10000,
-        chunk_overlap=0)
+        separators=["\n\n", "\n", " "], chunk_size=10000, chunk_overlap=0
+    )
 
     splitted_formatted_texts = text_splitter.split_text(text)
 
@@ -181,7 +170,7 @@ def predict_summary(text):
 簡潔なまとめ:"""
 
     map_prompt = PromptTemplate(template=map_template, input_variables=["text"])
-    
+
     chat = ChatOpenAI(model="gpt-3.5-turbo-16k-0613")
     chain = load_summarize_chain(
         llm=chat,
@@ -190,10 +179,10 @@ def predict_summary(text):
         combine_prompt=map_prompt,
         verbose=False,
     )
-    
+
     docs = [Document(page_content=t) for t in splitted_formatted_texts]
     ret = chain(inputs=docs, return_only_outputs=True)["output_text"]
-    
+
     return ret
 
 
@@ -204,20 +193,20 @@ def to_markdown(result):
 
     md_text = f"# {title}\n\n"
 
-    md_text += f"## 概要\n"
+    md_text += "## 概要\n"
     md_text += f"{summary}\n\n"
 
     for r in result["content"]:
         title = r["title"]
         content = r["content"]
-        md_segment = f"## {title}\n{content}\n\n" 
+        md_segment = f"## {title}\n{content}\n\n"
         md_text += md_segment
 
     md_text += "## 全文文字起こし\n"
     md_text += "```\n"
     md_text += result["text"] + "\n"
     md_text += "```"
-    return md_text 
+    return md_text
 
 
 if __name__ == "__main__":
@@ -235,7 +224,7 @@ if __name__ == "__main__":
         original_text = f.read()
 
     openai.api_key = apikey
-    
+
     formatted_text = correct_text(original_text)
 
     title = predict_title(formatted_text)
@@ -248,9 +237,9 @@ if __name__ == "__main__":
         "title": title,
         "summary": summary,
         "text": formatted_text,
-        "content": contents
+        "content": contents,
     }
-    
+
     markdown = to_markdown(result)
     with open(out_filename, "w") as f:
         f.write(markdown)

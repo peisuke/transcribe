@@ -1,14 +1,15 @@
+import datetime
 import io
 import os
 import threading
 import time
-import datetime
+
 import numpy as np
-from scipy.io import wavfile
+import openai
 import pyaudio
 import questionary
-import openai
 import whisper
+from scipy.io import wavfile
 
 
 def create_filename(dirname):
@@ -28,9 +29,9 @@ def get_api_usage_choice():
     return questionary.select(
         "Use OpenAI API?",
         choices=[
-            questionary.Choice('No', value=False),
-            questionary.Choice('Yes', value=True),
-        ]
+            questionary.Choice("No", value=False),
+            questionary.Choice("Yes", value=True),
+        ],
     ).ask()
 
 
@@ -93,12 +94,12 @@ class WorkerThread(threading.Thread):
     def process_buffer(self, data, all_data):
         with self.lock:
             buf = self.buffer.pop(0)
-        
+
         if buf is None:
             data = self.handle_none_buffer(data)
         else:
             data, all_data = self.handle_data_buffer(data, all_data, buf)
-        
+
         return data, all_data
 
     def handle_none_buffer(self, data):
@@ -117,7 +118,7 @@ class WorkerThread(threading.Thread):
 
         data.append(buf)
         all_data.append(buf)
-        
+
         return data, all_data
 
     def run(self):
@@ -161,7 +162,9 @@ class AudioFilter:
 
     def get_input_device_index(self):
         selects = [
-            questionary.Choice(title=self.p.get_device_info_by_index(idx)["name"], value=idx)
+            questionary.Choice(
+                title=self.p.get_device_info_by_index(idx)["name"], value=idx
+            )
             for idx in range(self.p.get_device_count())
         ]
         return questionary.select(
@@ -198,7 +201,7 @@ if __name__ == "__main__":
 
     block_length = 4
     margin_length = 1
-    
+
     filename = create_filename("data")
 
     worker_th = WorkerThread(block_length, margin_length, model, options, filename)
