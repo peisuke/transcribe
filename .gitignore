@@ -209,3 +209,4 @@ terraform.rc
 /data
 /bak
 *.md
+*.env

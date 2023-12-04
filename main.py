@@ -3,13 +3,23 @@ import io
 import os
 import threading
 import time
+from dotenv import load_dotenv
 
 import numpy as np
-import openai
+from openai import OpenAI
 import pyaudio
 import questionary
 import whisper
 from scipy.io import wavfile
+
+
+load_dotenv(".env")
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+if len(OPENAI_API_KEY):
+    print("No OPENAI_API_KEY. Please set OPENAI_API_KEY env param.")
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 def create_filename(dirname):
@@ -23,21 +33,6 @@ def get_language_choice():
         "Which language do you want to see?",
         choices=["ja", "en"],
     ).ask()
-
-
-def get_api_usage_choice():
-    return questionary.select(
-        "Use OpenAI API?",
-        choices=[
-            questionary.Choice("No", value=False),
-            questionary.Choice("Yes", value=True),
-        ],
-    ).ask()
-
-
-def set_openai_api_key():
-    api_key = questionary.path("Input API Key").ask()
-    openai.api_key = api_key
 
 
 def load_whisper_model(lang):
@@ -58,13 +53,16 @@ def convert_local(audio, model, options):
 
 
 def convert_api(audio, filename=None):
+    if len(client.api_key) == 0:
+        return
+
     buffer = io.BytesIO()
     audio = audio.flatten()
     wavfile.write(buffer, 16000, audio.astype(np.int16))
     buffer.seek(0)
     buffer.name = "temp.wav"
-    transcript = openai.Audio.transcribe("whisper-1", buffer)
-    text = transcript["text"]
+    transcript = client.audio.transcriptions.create(model="whisper-1", file=buffer)
+    text = transcript.text
     text = "\n".join(text.split(" "))
     print(f"\033[92m{text}\033[0m")
 
@@ -178,7 +176,6 @@ class AudioFilter:
             self.age = self.block_length
         else:
             self.age = max(0, self.age - 1)
-
         if self.age == 0:
             self.worker.push_chunk(None)
         else:
@@ -192,10 +189,10 @@ class AudioFilter:
 
 if __name__ == "__main__":
     lang = get_language_choice()
-    use_api = get_api_usage_choice()
+    #use_api = get_api_usage_choice()
 
-    if use_api:
-        set_openai_api_key()
+    #if use_api:
+    #    set_openai_api_key()
 
     model, options = load_whisper_model(lang)
 
