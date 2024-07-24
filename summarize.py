@@ -1,4 +1,5 @@
 import argparse
+from dotenv import load_dotenv
 
 import openai
 import tqdm
@@ -10,6 +11,15 @@ from langchain.docstore.document import Document
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
+
+
+load_dotenv(".env")
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+if len(OPENAI_API_KEY):
+    print("No OPENAI_API_KEY. Please set OPENAI_API_KEY env param.")
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 def correct_text(input_text):
@@ -213,17 +223,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ファイルを処理するスクリプトの説明")
     parser.add_argument("-i", "--input", type=str, required=True, help="処理するファイルの名前")
     parser.add_argument("-o", "--output", type=str, required=True, help="処理するファイルの名前")
-    parser.add_argument("-k", "--key", type=str, required=True, help="OpenAI API Key")
     args = parser.parse_args()
 
     in_filename = args.input
     out_filename = args.output
-    apikey = args.key
 
     with open(in_filename, "r") as f:
         original_text = f.read()
-
-    openai.api_key = apikey
 
     formatted_text = correct_text(original_text)
 
