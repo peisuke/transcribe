@@ -10,7 +10,7 @@
 
 ## Setting
 
-- アプリの出力をBlackHole 2chとしておく
+- アプリの出力をBlackHole 16chとしておく
 
 ## How to run
 
